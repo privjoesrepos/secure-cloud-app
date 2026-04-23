@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+.DS_Store
+.AppleDouble
+.LSOverride
+.vscode/
+
+*.tar
+.env
+.env.local
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
