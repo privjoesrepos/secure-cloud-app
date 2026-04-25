@@ -210,6 +210,7 @@ resource "aws_db_instance" "main" {
   publicly_accessible    = false # No internet access
 
   # Settings
+  backup_retention_period = 0
   skip_final_snapshot = true # No backups for portfolio project (saves money/time)
   
   tags = { Name = "secure-app-mysql" }
