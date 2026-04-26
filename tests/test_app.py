@@ -48,6 +48,8 @@ def test_get_users(client):
 def test_duplicate_user(client):
     payload = {"username": "aaa", "email": "aaa@devops.com"}
     client.post('/users', json=payload)
-    resp = client.post('/users', json={"username": "aaa", "email": "diff@dev.com"})
+    resp = client.post('/users', json={
+        "username": "aaa", "email": "diff@dev.com"
+    })
     assert resp.status_code == 409
     assert 'already exists' in resp.json['error']

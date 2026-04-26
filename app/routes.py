@@ -17,11 +17,15 @@ def index():
 def health():
     try:
         db.session.execute(db.text('SELECT 1'))
-        return jsonify({"status": "healthy", "database": "connected"}), 200
-    except Exception as e:
         return jsonify(
-            {"status": "unhealthy", "database": "disconnected", "error": str(e)}
-        ), 503
+            {"status": "healthy", "database": "connected"}
+        ), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "database": "disconnected",
+            "error": str(e)
+        }), 503
 
 
 @main_bp.route('/users', methods=['POST'])

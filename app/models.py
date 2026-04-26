@@ -8,7 +8,7 @@ class User(db.Model):
     username = db.Column(db.String(50), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
 
-    # Helper method to convert the object to a dictionary for our JSON responses
+    # Helper method to convert the object to a dictionary for JSON responses
     def to_dict(self):
         return {
             "id": self.id,
