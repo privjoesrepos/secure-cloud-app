@@ -45,7 +45,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: "us-east-1"
       
       - name: Login to Amazon ECR
         id: login-ecr
@@ -61,9 +61,6 @@ jobs:
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-          echo "=========================================" 
-          echo "DEBUG : The saved URL: $IMAGE_URI"
-          echo "========================================="
 
   # ---------------------------------------------
   # DEPLOY VIA AWS SSM
@@ -77,18 +74,12 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: "us-east-1"
       
       - name: Deploy via AWS SSM
         env:
           IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
         run: |
-          echo "========================================="
-          echo "DEBUG : The received URL: '$IMAGE_URI'"
-          echo "========================================="
-
-          # Using 'jq' to build a JSON array of commands for SSM
-          # Instead of BASH string concatenation for better readability and maintainability
           COMMANDS=$(jq -n \
             --arg img "$IMAGE_URI" \
             '[
@@ -98,7 +89,6 @@ jobs:
               "docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL \($img)"
             ]')
           
-          # Send the commands to EC2 via Systems Manager
           aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
@@ -108,7 +98,6 @@ jobs:
           echo "Waiting 40 seconds for Docker to pull and start..."
           sleep 40
           
-          # HEALTH CHECK LOOP
           for i in {1..10}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.ALB_DNS_NAME }}/health)
             if [ "$STATUS" == "200" ]; then
