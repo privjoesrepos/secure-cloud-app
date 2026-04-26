@@ -61,6 +61,9 @@ jobs:
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "=========================================" 
+          echo "DEBUG : The saved URL: $IMAGE_URI"
+          echo "========================================="
 
   # ---------------------------------------------
   # DEPLOY VIA AWS SSM
@@ -80,6 +83,10 @@ jobs:
         env:
           IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
         run: |
+          echo "========================================="
+          echo "DEBUG : The received URL: '$IMAGE_URI'"
+          echo "========================================="
+
           # Using 'jq' to build a JSON array of commands for SSM
           # Instead of BASH string concatenation for better readability and maintainability
           COMMANDS=$(jq -n \
