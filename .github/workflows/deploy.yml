@@ -80,13 +80,11 @@ jobs:
         env:
           IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
         run: |
+          # Combine into ONE string so variables persist, using 'set -a' to export them
           COMMANDS=$(jq -n \
             --arg img "$IMAGE_URI" \
             '[
-              "source /home/ec2-user/.env",
-              "docker rm -f secure-app-container || true",
-              "docker pull \($img)",
-              "docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL \($img)"
+              "set -a; source /home/ec2-user/.env; set +a; docker rm -f secure-app-container || true; docker pull \($img); docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL \($img)"
             ]')
           
           aws ssm send-command \
