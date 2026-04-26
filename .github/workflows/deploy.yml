@@ -84,29 +84,28 @@ jobs:
         env:
           IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
         run: |
-          # bash commands to execute on the remote EC2 server
-          COMMANDS=$(cat <<'EOF'
-          source /home/ec2-user/.env
-          docker rm -f secure-app-container || true
-          docker pull IMAGE_PLACEHOLDER
-          docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL IMAGE_PLACEHOLDER
-          EOF
-          )
-          
-          # Replace placeholder with the real ECR image URI from Job 2
-          COMMANDS="${COMMANDS//IMAGE_PLACEHOLDER/$IMAGE_URI}"
+          # Using 'jq' to build a JSON array of commands for SSM
+          # Instead of BASH string concatenation for better readability and maintainability
+          COMMANDS=$(jq -n \
+            --arg img "$IMAGE_URI" \
+            '[
+              "source /home/ec2-user/.env",
+              "docker rm -f secure-app-container || true",
+              "docker pull \($img)",
+              "docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL \($img)"
+            ]')
           
           # Send the commands to EC2 via Systems Manager
           aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[$COMMANDS]" \
+            --parameters "commands=$COMMANDS" \
             --timeout-seconds 120
           
           echo "Waiting 40 seconds for Docker to pull and start..."
           sleep 40
           
-          # HEALTH CHECK LOOP: Pings the ALB until it returns 200 OK
+          # HEALTH CHECK LOOP
           for i in {1..10}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.ALB_DNS_NAME }}/health)
             if [ "$STATUS" == "200" ]; then
