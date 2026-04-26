@@ -339,6 +339,11 @@ resource "aws_instance" "app" {
               systemctl enable docker
               # Add the default ec2-user to the docker group so it can run docker commands
               usermod -aG docker ec2-user
+
+              # SECRET INJECTION: Write the DB URL to a hidden file
+              # Terraform automatically fills in the password and endpoint here!
+              echo "DATABASE_URL=mysql+pymysql://dbadmin:${random_password.db_password.result}@${aws_db_instance.main.endpoint}/app_db" > /home/ec2-user/.env
+              chown ec2-user:ec2-user /home/ec2-user/.env
               EOF
 
   tags = {
@@ -399,3 +404,4 @@ resource "aws_lb_listener" "http" {
     target_group_arn = aws_lb_target_group.app.arn
   }
 }
+

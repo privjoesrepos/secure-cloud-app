@@ -1,0 +1,122 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  # ---------------------------------------------
+  # TEST (Quality Gate)
+  # ---------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Lint with flake8
+        run: flake8 app/ tests/
+      
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+  # ---------------------------------------------
+  # BUILD & PUSH TO ECR
+  # ---------------------------------------------
+  build-push:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.build-image.outputs.image_uri }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get AWS Account ID
+        id: account-id
+        run: echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ACCOUNT_ID: ${{ steps.account-id.outputs.account_id }}
+          IMAGE_TAG: ${{ github.sha }} # Tags image with commit hash (e.g. a3f9c12)
+        run: |
+          IMAGE_URI=$ECR_REGISTRY/$ACCOUNT_ID/secure-app-repo:$IMAGE_TAG
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+  # ---------------------------------------------
+  # DEPLOY VIA AWS SSM
+  # ---------------------------------------------
+  deploy:
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Deploy via AWS SSM
+        env:
+          IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
+        run: |
+          # bash commands to execute on the remote EC2 server
+          COMMANDS=$(cat <<'EOF'
+          source /home/ec2-user/.env
+          docker rm -f secure-app-container || true
+          docker pull IMAGE_PLACEHOLDER
+          docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL IMAGE_PLACEHOLDER
+          EOF
+          )
+          
+          # Replace placeholder with the real ECR image URI from Job 2
+          COMMANDS="${COMMANDS//IMAGE_PLACEHOLDER/$IMAGE_URI}"
+          
+          # Send the commands to EC2 via Systems Manager
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[$COMMANDS]" \
+            --timeout-seconds 120
+          
+          echo "Waiting 40 seconds for Docker to pull and start..."
+          sleep 40
+          
+          # HEALTH CHECK LOOP: Pings the ALB until it returns 200 OK
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.ALB_DNS_NAME }}/health)
+            if [ "$STATUS" == "200" ]; then
+              echo "Deployment Successful! App is live and healthy."
+              exit 0
+            fi
+            echo "Attempt $i: Waiting for app... (Status: $STATUS)"
+            sleep 10
+          done
+          
+          echo "Deployment Failed! Health check did not pass."
+          exit 1
