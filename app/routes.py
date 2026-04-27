@@ -36,11 +36,18 @@ def create_user():
         return jsonify({"error": "Username and email are required"}), 400
 
     if User.query.filter_by(username=data['username']).first():
-        return jsonify({"error": "User already exists"}), 409
+        return jsonify({"error": "Username already exists"}), 409
+
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({"error": "Email already in use"}), 409
 
     new_user = User(username=data['username'], email=data['email'])
     db.session.add(new_user)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Could not create user"}), 500
 
     return jsonify(new_user.to_dict()), 201
 

@@ -83,18 +83,45 @@ jobs:
           COMMANDS=$(jq -n \
             --arg img "$IMAGE_URI" \
             '[
-              "set -a; source /home/ec2-user/.env; set +a; ECR_REGISTRY=\($img | split("/")[0]); aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY; docker rm -f secure-app-container || true; docker pull \($img); docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL \($img)"
+              "set -a; source /home/ec2-user/.env; set +a; ECR_REGISTRY=\($img | split(\"/\")[0]); aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY; docker rm -f secure-app-container || true; docker pull \($img); docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL -e APP_ENV=$APP_ENV \($img)"
             ]')
-          
-          aws ssm send-command \
+
+          CMD_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --parameters "commands=$COMMANDS" \
-            --timeout-seconds 120 > /dev/null 2>&1
-          
-          echo "Waiting 60 seconds for deployment to propagate..."
-          sleep 60
-          
+            --timeout-seconds 120 \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $CMD_ID"
+          echo "Waiting for SSM command to complete..."
+
+          for i in {1..24}; do
+            SSM_STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+              --query "Status" \
+              --output text 2>/dev/null || echo "Pending")
+
+            echo "SSM status: $SSM_STATUS ($i/24)"
+
+            if [ "$SSM_STATUS" == "Success" ]; then
+              echo "SSM command succeeded."
+              break
+            elif [ "$SSM_STATUS" == "Failed" ] || [ "$SSM_STATUS" == "TimedOut" ] || [ "$SSM_STATUS" == "Cancelled" ]; then
+              aws ssm get-command-invocation \
+                --command-id "$CMD_ID" \
+                --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+                --query "StandardErrorContent" \
+                --output text
+              echo "SSM command failed with status: $SSM_STATUS"
+              exit 1
+            fi
+
+            sleep 5
+          done
+
           for i in {1..10}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.ALB_DNS_NAME }}/health)
             if [ "$STATUS" == "200" ]; then
@@ -104,6 +131,6 @@ jobs:
             echo "Waiting for application to start... ($i/10)"
             sleep 10
           done
-          
+
           echo "Deployment Failed: Health check did not pass."
           exit 1

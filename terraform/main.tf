@@ -243,23 +243,9 @@ resource "aws_ecr_lifecycle_policy" "app" {
         rulePriority = 1
         description  = "Keep only the last 10 images"
         selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
-        }
-        action = {
-          type = "expire"
-        }
-      },
-      {
-        rulePriority = 2
-        description  = "Delete untagged images immediately"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 1
+          tagStatus = "any"
+          countType = "imageCountMoreThan"
+          countNumber = 10
         }
         action = {
           type = "expire"
@@ -344,6 +330,7 @@ resource "aws_instance" "app" {
               # SECRET INJECTION: Write the DB URL to a hidden file
               # Terraform automatically fills in the password and endpoint here!
               echo "DATABASE_URL=mysql+pymysql://dbadmin:${random_password.db_password.result}@${aws_db_instance.main.endpoint}/app_db" > /home/ec2-user/.env
+              echo "APP_ENV=production" >> /home/ec2-user/.env
               chown ec2-user:ec2-user /home/ec2-user/.env
               EOF
 
