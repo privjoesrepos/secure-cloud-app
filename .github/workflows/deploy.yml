@@ -75,7 +75,13 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: "us-east-1"
-      
+
+      - name: Wait for SSM agent to register
+        run: |
+          aws ssm wait instance-information-available \
+            --filters "Key=InstanceIds,Values=${{ secrets.EC2_INSTANCE_ID }}" \
+            --region us-east-1
+            
       - name: Deploy to EC2 via AWS SSM
         env:
           IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
