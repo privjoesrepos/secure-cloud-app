@@ -76,7 +76,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: "us-east-1"
       
-      - name: Deploy via AWS SSM
+      - name: Deploy to EC2 via AWS SSM
         env:
           IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
         run: |
@@ -86,38 +86,24 @@ jobs:
               "set -a; source /home/ec2-user/.env; set +a; ECR_REGISTRY=\($img | split("/")[0]); aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY; docker rm -f secure-app-container || true; docker pull \($img); docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL \($img)"
             ]')
           
-          COMMAND_ID=$(aws ssm send-command \
+          aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --parameters "commands=$COMMANDS" \
-            --timeout-seconds 120 \
-            --query "Command.CommandId" \
-            --output text)
+            --timeout-seconds 120 > /dev/null 2>&1
           
-          echo "Waiting 60 seconds for Docker to pull and start on EC2..."
+          echo "Waiting 60 seconds for deployment to propagate..."
           sleep 60
           
-          echo "========================================="
-          echo "Fetching logs from EC2 instance..."
-          echo "========================================="
-          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "${{ secrets.EC2_INSTANCE_ID }}" --query "StandardOutputContent" --output text
-          echo "========================================="
-          echo "Fetching errors from EC2 instance..."
-          echo "========================================="
-          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "${{ secrets.EC2_INSTANCE_ID }}" --query "StandardErrorContent" --output text
-            
-          echo "========================================="
-          echo "Starting Health Check Loop..."
-          echo "========================================="
           for i in {1..10}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.ALB_DNS_NAME }}/health)
             if [ "$STATUS" == "200" ]; then
-              echo "Deployment Successful! App is live and healthy."
+              echo "Deployment Successful!"
               exit 0
             fi
-            echo "Attempt $i: Waiting for app... (Status: $STATUS)"
+            echo "Waiting for application to start... ($i/10)"
             sleep 10
           done
           
-          echo "Deployment Failed! Health check did not pass."
+          echo "Deployment Failed: Health check did not pass."
           exit 1

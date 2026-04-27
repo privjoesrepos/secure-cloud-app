@@ -406,3 +406,23 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# ==========================================
+# COST PROTECTION (Billing Alarm)
+# ==========================================
+
+# Create a CloudWatch alarm that triggers if the bill goes over $5
+resource "aws_cloudwatch_metric_alarm" "billing" {
+  alarm_name          = "secure-app-billing-alarm"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "EstimatedCharges"
+  namespace           = "AWS/Billing"
+  period              = "21600" # 6 hours in seconds
+  statistic           = "Maximum"
+  threshold           = "5"
+  alarm_description   = "This alarm monitors your estimated AWS charges. Triggers if over $5."
+  
+  dimensions = {
+    Currency = "USD"
+  }
+}
