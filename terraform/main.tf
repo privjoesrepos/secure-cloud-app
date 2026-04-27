@@ -193,6 +193,7 @@ resource "aws_db_instance" "main" {
   identifier     = "secure-app-db"
   engine         = "mysql"
   engine_version = "8.0"
+  db_name        = "app_db"
   instance_class = "db.t3.micro"
   
   # Credentials (Using the random password generated above)
