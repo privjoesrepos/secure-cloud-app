@@ -225,7 +225,8 @@ resource "aws_db_instance" "main" {
 resource "aws_ecr_repository" "app" {
   name                 = "secure-app-repo"
   image_tag_mutability = "MUTABLE" # Allows us to overwrite the "latest" tag
-
+  force_delete         = true
+  
   image_scanning_configuration {
     scan_on_push = true # AWS automatically scan for vulnerabilities
   }
