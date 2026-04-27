@@ -80,11 +80,11 @@ jobs:
         env:
           IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
         run: |
-          COMMANDS=$(jq -n \
-            --arg img "$IMAGE_URI" \
-            '[
-              "set -a; source /home/ec2-user/.env; set +a; ECR_REGISTRY=\($img | split(\"/\")[0]); aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY; docker rm -f secure-app-container || true; docker pull \($img); docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=$DATABASE_URL -e APP_ENV=$APP_ENV \($img)"
-            ]')
+          REGISTRY=$(echo "$IMAGE_URI" | cut -d/ -f1)
+
+          DOCKER_CMD="set -a; source /home/ec2-user/.env; set +a; aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $REGISTRY; docker rm -f secure-app-container || true; docker pull $IMAGE_URI; docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=\$DATABASE_URL -e APP_ENV=\$APP_ENV $IMAGE_URI"
+
+          COMMANDS=$(jq -n --arg cmd "$DOCKER_CMD" '[$cmd]')
 
           CMD_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
