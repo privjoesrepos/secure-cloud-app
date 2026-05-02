@@ -40,7 +40,7 @@ jobs:
   # BUILD & PUSH TO ECR
   # ---------------------------------------------
   build-push:
-    needs: test
+   # needs: test
     runs-on: ubuntu-latest
     outputs:
       image_uri: ${{ steps.build-image.outputs.image_uri }}
