@@ -3,6 +3,11 @@ output "alb_dns_name" {
   value       = aws_lb.app.dns_name
 }
 
+output "ec2_instance_id" {
+  description = "The EC2 instance ID for GitHub Actions secrets"
+  value       = aws_instance.app.id
+}
+
 output "db_endpoint" {
   description = "The internal connection string for the RDS database"
   value       = aws_db_instance.main.endpoint
