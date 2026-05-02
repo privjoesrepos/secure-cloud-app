@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from . import db
 from .models import User
-raise RuntimeError("intentional failure to test rollback")
+
 main_bp = Blueprint('main', __name__)
 
 
