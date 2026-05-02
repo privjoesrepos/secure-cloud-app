@@ -19,6 +19,14 @@ jobs:
         with:
           python-version: "3.12"
       
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+        
       - name: Install dependencies
         run: pip install -r requirements.txt
       
@@ -98,7 +106,14 @@ jobs:
         run: |
           REGISTRY=$(echo "$IMAGE_URI" | cut -d/ -f1)
 
-          DOCKER_CMD="set -a; source /home/ec2-user/.env; set +a; aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $REGISTRY; docker rm -f secure-app-container || true; docker pull $IMAGE_URI; docker run -d --name secure-app-container -p 8080:8080 --restart always -e DATABASE_URL=\$DATABASE_URL -e APP_ENV=\$APP_ENV $IMAGE_URI"
+          DOCKER_CMD="set -a; source /home/ec2-user/.env; set +a; \
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $REGISTRY; \
+          OLD_IMAGE=\$(docker inspect secure-app-container --format='{{.Config.Image}}' 2>/dev/null || echo ''); \
+          echo \$OLD_IMAGE > /home/ec2-user/.rollback_image; \
+          docker rm -f secure-app-container || true; \
+          docker pull $IMAGE_URI; \
+          docker run -d --name secure-app-container -p 8080:8080 --restart always \
+            -e DATABASE_URL=\$DATABASE_URL -e APP_ENV=\$APP_ENV $IMAGE_URI"
 
           COMMANDS=$(jq -n --arg cmd "$DOCKER_CMD" '[$cmd]')
 
@@ -138,15 +153,72 @@ jobs:
             sleep 5
           done
 
+      - name: Health check with rollback
+        env:
+          IMAGE_URI: ${{ needs.build-push.outputs.image_uri }}
+        run: |
           for i in {1..10}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.ALB_DNS_NAME }}/health)
             if [ "$STATUS" == "200" ]; then
-              echo "Deployment Successful!"
+              echo "Deployment successful!"
               exit 0
             fi
-            echo "Waiting for application to start... ($i/10)"
+            echo "Waiting for app to start... ($i/10)"
             sleep 10
           done
 
-          echo "Deployment Failed: Health check did not pass."
+          echo "Health check failed. Triggering rollback..."
+
+          REGISTRY=$(echo "$IMAGE_URI" | cut -d/ -f1)
+
+          ROLLBACK_CMD="set -a; source /home/ec2-user/.env; set +a; \
+            OLD_IMAGE=\$(cat /home/ec2-user/.rollback_image); \
+            if [ -z \"\$OLD_IMAGE\" ]; then echo 'No previous image to roll back to.'; exit 1; fi; \
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $REGISTRY; \
+            docker rm -f secure-app-container || true; \
+            docker rmi $IMAGE_URI 2>/dev/null || true; \
+            docker run -d --name secure-app-container -p 8080:8080 --restart always \
+              -e DATABASE_URL=\$DATABASE_URL -e APP_ENV=\$APP_ENV \$OLD_IMAGE; \
+            echo ''; \
+            echo 'ROLLBACK COMPLETE'; \
+            echo '---------------------------------------'; \
+            echo 'Failed image  : $IMAGE_URI'; \
+            echo 'Running image : '\$OLD_IMAGE; \
+            echo '---------------------------------------'; \
+            rm -f /home/ec2-user/.rollback_image"
+
+          COMMANDS=$(jq -n --arg cmd "$ROLLBACK_CMD" '[$cmd]')
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=$COMMANDS" \
+            --timeout-seconds 120 \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "Rollback SSM Command ID: $CMD_ID"
+
+          for i in {1..24}; do
+            SSM_STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+              --query "Status" --output text 2>/dev/null || echo "Pending")
+            echo "Rollback status: $SSM_STATUS ($i/24)"
+            if [ "$SSM_STATUS" == "Success" ]; then
+              echo ""
+              echo "DEPLOYMENT FAILED — ROLLED BACK"
+              echo "---------------------------------------"
+              echo "Failed image : $IMAGE_URI"
+              echo "Service restored to previous version"
+              echo "---------------------------------------"
+              break
+            fi
+            if [ "$SSM_STATUS" == "Failed" ] || [ "$SSM_STATUS" == "TimedOut" ]; then
+              echo "Rollback itself failed. Manual intervention required."
+              exit 1
+            fi
+            sleep 5
+          done
+
           exit 1
