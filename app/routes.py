@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from . import db
 from .models import User
-raise RuntimeError("intentional failure to test rollback")
+
 main_bp = Blueprint('main', __name__)
 
 
@@ -15,17 +15,7 @@ def index():
 
 @main_bp.route('/health', methods=['GET'])
 def health():
-    try:
-        db.session.execute(db.text('SELECT 1'))
-        return jsonify(
-            {"status": "healthy", "database": "connected"}
-        ), 200
-    except Exception as e:
-        return jsonify({
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e)
-        }), 503
+    return jsonify({"status": "unhealthy", "test": "intentional failure"}), 503
 
 
 @main_bp.route('/users', methods=['POST'])
